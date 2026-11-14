@@ -1,0 +1,18 @@
+Часть 1. Победитель получает деньги и прикрепляет отчёт
+1. Держатель ранее нажал «Дать денег» по заявке победителя. Контроллер вызвал holder.одобрить(app), внутри: app.setStatus(ApplicationStatus.APPROVED), applicationRepository.save(app). Податель видит в интерфейсе, что заявка одобрена, и ему нужно приложить отчёт о реализации.
+2. Податель заполняет содержимое отчёта (content: String — текст, ссылки на документы, суммы) и нажимает «Прикрепить отчёт». Контроллер вызывает applicant.прикрепить_отчёт(app, r).
+3. Проверка 1 — заявка в правильном статусе: прикрепить_отчёт проверяет app.status == ApplicationStatus.APPROVED. Если статус другой (IN_TOP_N — ещё не одобрена, REJECTED_BY_HOLDER — отклонена, REPORT_SUBMITTED — отчёт уже прикреплён) — отказ: «Отчёт можно прикрепить только к одобренной заявке». Это защита от повторной отправки и от отправки по невыигравшей заявке.
+4. Проверка 2 — заявка принадлежит этому подателю:app.applicant_id == applicant.id. Если нет — отказ 403 (защита от подделки appId в запросе).
+5. Создание отчёта: прикрепить_отчётсоздаёт new Report(id, content, submitted_at). Атрибуты: id = UUID.randomUUID(), content = r.content, status = ReportStatus.SUBMITTED, submitted_at = now().
+6. Привязка к заявке: app.report = report, app.setStatus(ApplicationStatus.REPORT_SUBMITTED)
+7. applicationRepository.save (app) — сохраняет заявку с новым статусом и ссылкой на отчёт. Отчёт сохраняется каскадно. С этого момента отчёт виден держателю.
+
+Часть 2. Держатель проверяет отчёты
+8. Держатель (holder — экземпляр Holder) заходит в систему. Контроллер вызывает applicationRepository.findByStatus(ApplicationStatus.REPORT_SUBMITTED)— получает список заявок с непрочитанными отчётами.
+9. Держатель открывает отчёт, читает содержимое (report.content, report.submitted_at, данные заявки app.description, app.final_score), нажимает «Отчёт прочитан». Контроллер вызывает holder.отметить_отчёт_прочитанным(r).
+10. Проверка 1 — отчёт в правильном статусе: отметить_отчёт_прочитаннымпроверяет report.status == ReportStatus.SUBMITTED. Если уже READ — ничего не меняем.
+11. Проверка 2 — отчёт относится к существующей заявке: applicationRepository.findById(report.application_id)возвращает заявку. Если null — отказ (защита от битых ссылок).
+12. Смена статуса отчёта:report.setStatus(ReportStatus.READ).
+13. Смена статуса заявки:app.setStatus(ApplicationStatus.REPORT_READ). Это финальный статус жизненного цикла заявки — дальше она уже не меняется.
+14. Сохранение:applicationRepository.save(app) (отчёт сохраняется каскадно или через reportRepository.save(report)). С этого момента отчёт не появится в списке «ожидают проверки», а заявка считается полностью закрытой.
+15. Заявка уходит из рабочего списка держателя фонда, но остаётся в архиве (findByStatus(REPORT_READ)) для отчётности.
