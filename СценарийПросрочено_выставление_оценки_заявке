@@ -1,0 +1,57 @@
+@startuml
+skinparam sequenceMessageAlign center
+autonumber
+
+participant "Scheduler" as S
+participant "AssignmentRepository" as AR
+participant "ScoreRepository" as SR
+participant "ExpertRepository" as ER
+participant "Assignment" as A
+
+S -> AR : findOverdue(now)
+activate AR
+AR --> S : List<Assignment> overdue
+deactivate AR
+
+S -> S : groupByApplication(overdue)
+note right: Map<appId, List<Assignment>>
+
+loop для каждой заявки appId
+  S -> SR : countByApplicationId(appId)
+  activate SR
+  SR --> S : long scoredCount
+  deactivate SR
+
+  alt scoredCount == 3
+    ' Заявка уже закрыта, просто чистим назначения
+    loop для каждого Assignment
+      S -> A : setStatus(EXPIRED)
+      S -> AR : save(assignment)
+    end
+  else scoredCount < 3
+    ' Заявка зависла — нужна замена
+    loop для каждого Assignment
+      S -> A : setStatus(EXPIRED)
+      S -> AR : save(assignment)
+    end
+
+    S -> ER : findAvailableForReassignment(\n  area, appId, excludeIds)
+    activate ER
+    ER --> S : List<Expert> available
+    deactivate ER
+
+    alt available не пуст
+      S -> S : new Assignment(newExpert, appId, +N дней)
+      S -> AR : save(newAssignment)
+      activate AR
+      AR --> S : ok
+      deactivate AR
+    else нет замены
+      S -> S : logWarning("Нет эксперта для заявки " + appId)
+      note right: алерт админу, заявка остаётся\nс неполным набором
+    end
+  end
+end
+
+S --> S : ExpireReport
+@enduml
