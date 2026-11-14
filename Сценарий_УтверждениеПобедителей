@@ -1,0 +1,75 @@
+
+@startuml
+skinparam responseMessageBelowArrow true
+
+actor "Держатель фонда\n(Holder)" as holder
+participant "дайденег\n(Система)" as system
+participant "Оценщик заявок\n(ScoreEvaluator)" as evaluator
+participant "Выборщик ТОП-N\n(TopSelector)" as selector
+participant "Заявка\n(Application)" as application
+database "ХранилищеАнкет\n(ApplicationRepository)" as app_repo
+
+holder -> system : утвердить_победителей()
+activate system
+
+system -> app_repo : findByStatus(SCORED)
+activate app_repo
+app_repo --> system : scored_apps
+deactivate app_repo
+
+system -> evaluator : isPassedThreshold(app)
+activate evaluator
+
+loop для каждой оценённой заявки
+    system -> evaluator : isPassedThreshold(app)
+    evaluator --> system : true / false
+
+    alt Заявка прошла порог
+        system -> evaluator : calculateFinalScore(app)
+        evaluator --> system : final_score
+
+        system -> application : status = PASSED_THRESHOLD
+        activate application
+        deactivate application
+
+    end
+end
+deactivate evaluator
+
+system -> selector : selectTopNByArea(apps, 10)
+activate selector
+selector --> system : top_apps_by_area
+deactivate selector
+
+loop для каждой заявки из ТОП-10
+    system -> application : status = IN_TOP_N
+    activate application
+    deactivate application
+end
+
+system --> holder : top_apps_by_area
+
+loop для каждой заявки из ТОП-10
+    alt Держатель фонда одобряет заявку
+        holder -> system : одобрить(app)
+        activate system
+        system -> application : status = APPROVED
+        activate application
+        deactivate application
+    else Держатель фонда отклоняет заявку
+        holder -> system : отклонить(app)
+        system -> application : status = REJECTED
+        activate application
+        deactivate application
+    end
+
+    system -> app_repo : save(app)
+    activate app_repo
+    app_repo --> system : confirmation
+    deactivate app_repo
+    deactivate system
+end
+
+system --> holder : approval_result
+deactivate system
+@enduml
